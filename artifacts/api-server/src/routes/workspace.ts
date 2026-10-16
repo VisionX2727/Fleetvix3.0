@@ -284,12 +284,11 @@ router.post("/owner", async (req, res) => {
   const state = normalizeState(req.body?.state);
   const inviteCode = current?.inviteCode || Math.random().toString(36).slice(2, 8).toUpperCase();
   if (current) {
-    const updated = await db.update(fleetWorkspaces).set({ state, updatedAt: new Date() }).where(eq(fleetWorkspaces.ownerUserId, userId)).returning();
-    res.json({ role: "owner", ownerUserId: userId, state: updated[0]?.state || state, inviteCode });
+    res.json({ role: "owner", ownerUserId: userId, state: current.state, inviteCode: current.inviteCode, created: false });
     return;
   }
   const created = await db.insert(fleetWorkspaces).values({ ownerUserId: userId, inviteCode, state }).returning();
-  res.json({ role: "owner", ownerUserId: userId, state: created[0].state, inviteCode });
+  res.json({ role: "owner", ownerUserId: userId, state: created[0].state, inviteCode, created: true });
 });
 
 router.put("/owner/state", async (req, res) => {

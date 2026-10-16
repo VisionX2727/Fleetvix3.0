@@ -26,6 +26,7 @@ export type DriverMembership = {
 
 export type WorkspaceResponse = {
   role: "owner" | "driver" | "blocked" | "removed" | null;
+  created?: boolean;
   ownerUserId?: string;
   state?: AppState;
   inviteCode?: string;

@@ -116,8 +116,12 @@ function RoleSelection({
       setOwnerBusy(true);
       const createdWorkspace = await createOwnerWorkspace(accessToken);
       // Keep any records entered before Google sign-in, but only sync them
-      // after the server has established the canonical owner workspace.
-      onReady({ ...createdWorkspace, state: getLocalState(userId) });
+      // after the server has established a new canonical owner workspace.
+      // Existing server data must remain the source of truth on later sign-ins.
+      onReady({
+        ...createdWorkspace,
+        ...(createdWorkspace.created ? { state: getLocalState(userId) } : {}),
+      });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not create the owner workspace');
     } finally {
@@ -211,41 +215,18 @@ function RoleSelection({
 }
 
 function AuthenticatedShell() {
-  const { user, session, loading, signOut } = useAuth();
+  const { user, session, loading } = useAuth();
   const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
-  const [workspaceLoading, setWorkspaceLoading] = useState(false);
-  const [workspaceError, setWorkspaceError] = useState('');
 
   const publicPath = window.location.pathname.replace(/\/$/, '') || '/';
   if (publicPath === '/terms-and-conditions') return <TermsAndConditions />;
   if (publicPath === '/privacy-policy') return <PrivacyPolicy />;
 
   useEffect(() => {
-    if (!user || !session || isAdminEmail(user.email)) {
-      setWorkspace(null);
-      return;
-    }
-    setWorkspaceLoading(true);
-    setWorkspaceError('');
-    let cancelled = false;
-    const loadWorkspace = async () => {
-      let lastError: unknown;
-      for (let attempt = 0; attempt < 3; attempt += 1) {
-        try {
-          const latest = await getWorkspace(session.access_token);
-          if (!cancelled) setWorkspace(latest);
-          return;
-        } catch (cause) {
-          lastError = cause;
-          if (attempt < 2) await new Promise((resolve) => window.setTimeout(resolve, 500 * (attempt + 1)));
-        }
-      }
-      if (!cancelled) setWorkspaceError(lastError instanceof Error ? lastError.message : 'Could not load workspace');
-    };
-    void loadWorkspace()
-      .finally(() => setWorkspaceLoading(false));
-    return () => { cancelled = true; };
-  }, [user, session]);
+    // The role choice should not depend on a workspace lookup succeeding.
+    // Clear any prior account's workspace when the signed-in user changes.
+    setWorkspace(null);
+  }, [user?.id]);
 
   const refreshWorkspace = async () => {
     if (!session) return;
@@ -257,32 +238,7 @@ function AuthenticatedShell() {
   const adminPath = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
   if (!user || !session) return <Login adminOnly={adminPath} />;
   if (isAdminEmail(user.email) || adminPath) return <AdminDashboard />;
-  if (workspaceLoading) return <Splash label="Preparing workspace..." />;
-  if (workspaceError) {
-    return (
-      <main className="fm-splash-screen px-6 text-center">
-        <div className="fm-splash-logo-wrap"><img src={splashLogo} alt="Fleetvix logo" /></div>
-        <p className="max-w-sm text-sm font-semibold text-destructive">{workspaceError}</p>
-        <div className="mt-4 flex w-full max-w-sm gap-2">
-          <button
-            type="button"
-            onClick={() => window.location.reload()}
-            className="flex-1 rounded-xl border border-border bg-card p-3 text-sm font-bold"
-          >
-            Try again
-          </button>
-          <button
-            type="button"
-            onClick={() => void signOut()}
-            className="flex-1 rounded-xl bg-primary p-3 text-sm font-bold text-primary-foreground"
-          >
-            Back to sign in
-          </button>
-        </div>
-      </main>
-    );
-  }
-  if (!workspace) return <Splash label="Preparing workspace..." />;
+  if (!workspace) return <RoleSelection userId={user.id} accessToken={session.access_token} onReady={setWorkspace} />;
   if (!workspace.role) {
     return <RoleSelection userId={user.id} accessToken={session.access_token} onReady={setWorkspace} />;
   }
