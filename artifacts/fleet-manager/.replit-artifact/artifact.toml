@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "Fleetvix Fleet Manager"
+description = "A mobile-first fleet operations app for owners and drivers to manage vehicles, daily work, fuel, customers, payments, and reports."
+version = "1.0.0"
+id = "artifacts/fleet-manager"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 23693
+
+[services.development]
+run = "pnpm --filter @workspace/fleet-manager run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/fleet-manager", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/fleet-manager/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "23693"
+BASE_PATH = "/"

@@ -10,6 +10,8 @@ servers:
 tags:
   - name: health
     description: Health operations
+  - name: legal
+    description: Public legal documents and administrator-managed site content
 paths:
   /healthz:
     get:
@@ -24,6 +26,51 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /public/legal:
+    get:
+      operationId: getPublicLegalContent
+      tags: [legal]
+      summary: Get public legal documents and contact information
+      responses:
+        "200":
+          description: Current legal documents and public contact information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteContentResponse"
+  /admin/site-content:
+    get:
+      operationId: getAdminSiteContent
+      tags: [legal]
+      summary: Get legal documents and contact information for editing
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: Legal documents and contact information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteContentResponse"
+    put:
+      operationId: updateAdminSiteContent
+      tags: [legal]
+      summary: Update legal documents and contact information
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SiteContentInput"
+      responses:
+        "200":
+          description: Updated legal documents and contact information
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/SiteContentResponse"
 components:
   schemas:
     HealthStatus:
@@ -33,4 +80,93 @@ components:
           type: string
       required:
         - status
+    SiteContent:
+      type: object
+      properties:
+        termsContent:
+          type: string
+          maxLength: 60000
+        privacyContent:
+          type: string
+          maxLength: 60000
+        legalName:
+          type: string
+          maxLength: 200
+        businessAddress:
+          type: string
+          maxLength: 1000
+        supportEmail:
+          type: string
+          maxLength: 320
+        privacyEmail:
+          type: string
+          maxLength: 320
+        supportPhone:
+          type: string
+          maxLength: 80
+        termsUpdatedAt:
+          type: string
+          format: date-time
+        privacyUpdatedAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+      required:
+        - termsContent
+        - privacyContent
+        - legalName
+        - businessAddress
+        - supportEmail
+        - privacyEmail
+        - supportPhone
+        - termsUpdatedAt
+        - privacyUpdatedAt
+        - updatedAt
+    SiteContentInput:
+      type: object
+      properties:
+        termsContent:
+          type: string
+          minLength: 1
+          maxLength: 60000
+        privacyContent:
+          type: string
+          minLength: 1
+          maxLength: 60000
+        legalName:
+          type: string
+          maxLength: 200
+        businessAddress:
+          type: string
+          maxLength: 1000
+        supportEmail:
+          type: string
+          maxLength: 320
+        privacyEmail:
+          type: string
+          maxLength: 320
+        supportPhone:
+          type: string
+          maxLength: 80
+      required:
+        - termsContent
+        - privacyContent
+        - legalName
+        - businessAddress
+        - supportEmail
+        - privacyEmail
+        - supportPhone
+    SiteContentResponse:
+      type: object
+      properties:
+        content:
+          $ref: "#/components/schemas/SiteContent"
+      required:
+        - content
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
 

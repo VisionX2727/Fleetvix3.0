@@ -1,0 +1,17 @@
+{
+  "name": "Fleetvix",
+  "short_name": "Fleetvix",
+  "description": "Fleetvix fleet operations",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#070d1d",
+  "theme_color": "#070d1d",
+  "icons": [
+    {
+      "src": "/fleetx-icon.jpeg",
+      "sizes": "1254x1254",
+      "type": "image/jpeg",
+      "purpose": "any maskable"
+    }
+  ]
+}
