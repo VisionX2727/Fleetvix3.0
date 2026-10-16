@@ -23,12 +23,9 @@ export default function DriverSettings() {
 
   if (!profile) return null;
   const save = async () => {
-    try {
-      await updateDriverProfile({ ...profile, name, phone, address, vehicleIds, documents });
-      setMessage("Driver profile saved.");
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Could not save driver profile.");
-    }
+    await updateDriverProfile({ ...profile, name, phone, address, vehicleIds, documents });
+    setMessage("Driver profile saved.");
+    window.setTimeout(() => window.location.reload(), 400);
   };
   const uploadDocument = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -39,11 +36,7 @@ export default function DriverSettings() {
   };
   const resetMyData = () => {
     if (!window.confirm("Factory reset your driver records? Your driver account and vehicle access will remain, but your synced logs, fuel, payments, notes and maintenance records will be deleted.")) return;
-    if (!session) {
-      dispatch({ type: "RESET_DRIVER_DATA" });
-      setMessage("Your local driver records were reset.");
-      return;
-    }
+    if (!session) return;
     void resetDriverWorkspace(session.access_token)
       .then(() => {
         dispatch({ type: "RESET_DRIVER_DATA" });
@@ -68,16 +61,6 @@ export default function DriverSettings() {
     anchor.click();
     URL.revokeObjectURL(url);
   };
-  const returnToRoleSelection = async () => {
-    if (session) {
-      const { error } = await signOut();
-      if (error) {
-        setMessage(error.message);
-        return;
-      }
-    }
-    window.location.replace(new URL(import.meta.env.BASE_URL || "/", window.location.origin).toString());
-  };
 
   return (
     <Layout>
@@ -92,7 +75,7 @@ export default function DriverSettings() {
         {message && <p className="rounded-xl bg-emerald-500/10 p-3 text-sm text-emerald-300">{message}</p>}
          <section className="fm-settings-card space-y-3"><div className="fm-settings-section-title">Help & Support</div><p className="text-xs text-muted-foreground">Need help with your vehicle, attendance, work logs or account?</p><Link href="/support" className="flex items-center justify-center gap-2 rounded-xl border border-primary/40 p-3 font-bold text-primary"><LifeBuoy size={17} /> Contact Support</Link></section>
         <section className="fm-settings-card space-y-3"><div className="fm-settings-section-title">Driver Data</div><p className="text-xs text-muted-foreground">Reset this device's driver workspace records without removing your owner membership or previously synced owner history.</p><button type="button" onClick={() => void downloadDriverReport()} className="flex w-full items-center justify-center gap-2 rounded-xl border border-primary/40 p-3 font-bold text-primary"><Download size={17} /> Download Driver Report PDF</button><button type="button" onClick={resetMyData} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-400/40 p-3 font-bold text-rose-300"><Trash2 size={17} /> Reset All Driver Data</button></section>
-         <button type="button" onClick={() => void returnToRoleSelection()} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-400/40 p-3 font-bold text-rose-300"><LogOut size={17} /> {session ? "Logout" : "Choose Driver or Owner"}</button>
+        <button type="button" onClick={() => void signOut()} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-400/40 p-3 font-bold text-rose-300"><LogOut size={17} /> Logout</button>
       </main>
     </Layout>
   );

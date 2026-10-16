@@ -31,9 +31,8 @@ Fleet Manager is a mobile-first operations app for small fleet owners to track v
 ## Architecture decisions
 
 - The first milestone is local-first so the app remains usable offline and keeps records across reloads.
-- Without an authenticated session, the app opens directly to the Owner/Driver chooser. Each role's local workspace is stored in this browser and does not sync across devices.
-- Existing authenticated sessions continue to use the server-backed workspace. The public login page has been removed.
-- Supabase provides Google OAuth, the PostgreSQL workspace database, and business-logo storage for connected accounts. The browser uses only the public Supabase URL and publishable/anon key; the API keeps the database URL, service-role key, and Gemini key server-side.
+- The app starts with Google sign-in through Supabase Auth; after authentication, users choose the Owner or Driver workspace.
+- Supabase provides Google OAuth, the PostgreSQL workspace database, and business-logo storage. The browser uses only the public Supabase URL and publishable/anon key; the API keeps the database URL, service-role key, and Gemini key server-side.
 - The API in this Replit project enforces owner/driver data scopes. Vercel sends `/api/*` to this project's published API; do not configure the browser to call a separate API origin.
 - Khata charges are linked to work logs and vehicles so receipts and payment QR amounts are derived from recorded work.
 

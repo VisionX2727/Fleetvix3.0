@@ -19,6 +19,7 @@ import Analytics from '@/pages/analytics';
 import Drivers from '@/pages/drivers';
 import Calculator from '@/pages/calculator';
 import Settings from '@/pages/settings';
+import Login from '@/pages/login';
 import Notes from '@/pages/notes';
 import DriverHome from '@/pages/driver-home';
 import DriverSettings from '@/pages/driver-settings';
@@ -33,7 +34,6 @@ import PrivacyPolicy from '@/pages/privacy-policy';
 import Fleetu from '@/pages/fleetu';
 import { isAdminEmail } from '@/lib/admin';
 import splashLogo from '@assets/FleetX_1785676635299.jpeg';
-import LocalRoleSelection from '@/components/local-role-selection';
 
 const queryClient = new QueryClient();
 
@@ -139,7 +139,7 @@ function RoleSelection({
     }
   };
 
-  const switchAccount = async () => {
+  const backToSignIn = async () => {
     await signOut();
   };
 
@@ -174,10 +174,10 @@ function RoleSelection({
               </button>
               <button
                 type="button"
-                onClick={() => void switchAccount()}
+                onClick={() => void backToSignIn()}
                 className="flex-1 rounded-xl border border-primary/40 bg-primary/10 p-3 text-sm font-bold text-primary"
               >
-                Sign out
+                Back to sign in
               </button>
             </div>
           </div>
@@ -185,10 +185,10 @@ function RoleSelection({
         {!error && (
           <button
             type="button"
-            onClick={() => void switchAccount()}
+            onClick={() => void backToSignIn()}
             className="mt-5 w-full rounded-xl border border-border bg-card/60 p-3 text-sm font-bold text-muted-foreground"
           >
-            Sign out / switch account
+            Back to sign in / switch account
           </button>
         )}
       </div>
@@ -210,67 +210,11 @@ function RoleSelection({
   );
 }
 
-const LOCAL_DRIVER_PROFILE_KEY = 'fleetvix-local-driver-profile';
-
-function getLocalDriverProfile(): NonNullable<WorkspaceResponse['member']>['profile'] {
-  const fallback = { name: 'Driver', phone: '', address: '', vehicleIds: [], documents: [] };
-  try {
-    const saved = localStorage.getItem(LOCAL_DRIVER_PROFILE_KEY);
-    if (!saved) return fallback;
-    const profile = JSON.parse(saved) as Partial<NonNullable<WorkspaceResponse['member']>['profile']>;
-    return {
-      ...fallback,
-      ...profile,
-      name: typeof profile.name === 'string' ? profile.name : fallback.name,
-      phone: typeof profile.phone === 'string' ? profile.phone : fallback.phone,
-      vehicleIds: Array.isArray(profile.vehicleIds) ? profile.vehicleIds : [],
-      documents: Array.isArray(profile.documents) ? profile.documents : [],
-    };
-  } catch {
-    return fallback;
-  }
-}
-
-function LocalWorkspace({ role }: { role: WorkspaceRole['role'] }) {
-  const userId = role === 'owner' ? 'fleetvix-local-owner' : 'fleetvix-local-driver';
-  const localState = getLocalState(userId);
-  const member: WorkspaceResponse['member'] = role === 'driver'
-    ? {
-        id: 'fleetvix-local-driver',
-        ownerUserId: 'fleetvix-local-owner',
-        driverUserId: userId,
-        profile: getLocalDriverProfile(),
-      }
-    : undefined;
-  const roleValue: WorkspaceRole = {
-    role,
-    localMode: true,
-    session: null,
-    ...(member ? { member } : {}),
-    ownerSettings: role === 'owner' ? localState.settings : undefined,
-    availableVehicles: role === 'owner' ? localState.vehicles : [],
-    invoices: [],
-    members: [],
-    refreshWorkspace: async () => undefined,
-  };
-
-  return (
-    <RoleProvider value={roleValue}>
-      <StoreProvider key={userId} userId={userId} role={role} cloudSync={false}>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, '')}>
-          <Router role={role} />
-        </WouterRouter>
-      </StoreProvider>
-    </RoleProvider>
-  );
-}
-
 function AuthenticatedShell() {
   const { user, session, loading, signOut } = useAuth();
   const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
   const [workspaceLoading, setWorkspaceLoading] = useState(false);
   const [workspaceError, setWorkspaceError] = useState('');
-  const [localRole, setLocalRole] = useState<WorkspaceRole['role'] | null>(null);
 
   const publicPath = window.location.pathname.replace(/\/$/, '') || '/';
   if (publicPath === '/terms-and-conditions') return <TermsAndConditions />;
@@ -311,12 +255,7 @@ function AuthenticatedShell() {
 
   if (loading) return <Splash />;
   const adminPath = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
-  if (!user || !session) {
-    if (adminPath) return <NotFound />;
-    return localRole
-      ? <LocalWorkspace role={localRole} />
-      : <LocalRoleSelection onSelect={setLocalRole} />;
-  }
+  if (!user || !session) return <Login adminOnly={adminPath} />;
   if (isAdminEmail(user.email) || adminPath) return <AdminDashboard />;
   if (workspaceLoading) return <Splash label="Preparing workspace..." />;
   if (workspaceError) {
@@ -337,7 +276,7 @@ function AuthenticatedShell() {
             onClick={() => void signOut()}
             className="flex-1 rounded-xl bg-primary p-3 text-sm font-bold text-primary-foreground"
           >
-            Return to role selection
+            Back to sign in
           </button>
         </div>
       </main>
@@ -426,7 +365,7 @@ function DriverAccessStatus({
           {error && <p className="rounded-xl bg-destructive/10 p-3 text-sm text-destructive">{error}</p>}
            <button disabled={busy} type="submit" className="w-full rounded-xl bg-primary p-4 font-black text-primary-foreground">{busy ? "Joining..." : "Join Vehicle Again"}</button>
         </form>}
-         <button type="button" onClick={() => void signOut()} className="mt-4 w-full rounded-xl border border-border bg-card p-3 text-sm font-bold">Sign out / choose role</button>
+        <button type="button" onClick={() => void signOut()} className="mt-4 w-full rounded-xl border border-border bg-card p-3 text-sm font-bold">Back to sign in / switch account</button>
       </div>
     </main>
   );

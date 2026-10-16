@@ -109,8 +109,7 @@ export default function Support() {
             <label>Subject<input required maxLength={160} value={subject} onChange={(event) => setSubject(event.target.value)} placeholder="Short summary" /></label>
             <label>Detailed description<textarea required maxLength={5000} value={description} onChange={(event) => setDescription(event.target.value)} placeholder="Explain what happened and what you expected." /></label>
             <label className="flex min-w-0 cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border p-4 text-sm font-bold text-primary"><Paperclip size={17} /><span className="truncate">{attachment ? attachment.name : "Add screenshot or PDF (up to 5 MB)"}</span><input ref={attachmentInput} type="file" accept="image/png,image/jpeg,image/webp,image/gif,application/pdf" onChange={handleAttachment} className="sr-only" /></label>
-            <button type="submit" disabled={busy || !session} className="fm-primary-button fm-submit-button"><Send size={17} />{busy ? "Submitting..." : session ? "Submit request" : "Account connection required"}</button>
-            {!session && <p className="text-xs text-muted-foreground">Support requests require a connected account. Your local fleet tools remain available.</p>}
+            <button type="submit" disabled={busy} className="fm-primary-button fm-submit-button"><Send size={17} />{busy ? "Submitting..." : "Submit request"}</button>
           </form>
           {message && <p className="rounded-xl bg-emerald-500/10 p-3 text-sm font-semibold text-emerald-300"><CheckCircle2 className="mr-2 inline" size={16} />{message}</p>}
           {error && <p role="alert" className="rounded-xl bg-destructive/10 p-3 text-sm font-semibold text-destructive">{error}</p>}

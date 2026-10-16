@@ -12,8 +12,7 @@ export type WorkspaceRole = {
   availableVehicles?: AppState["vehicles"];
   invoices?: WorkspaceResponse["invoices"];
   members?: WorkspaceResponse["members"];
-  session: Session | null;
-  localMode?: boolean;
+  session: Session;
   refreshWorkspace: () => Promise<void>;
 };
 
@@ -38,12 +37,6 @@ export function RoleProvider({ value, children }: { value: WorkspaceRole; childr
   }, [value]);
   const updateMember = (member: DriverMembership) => setCurrent((previous) => ({ ...previous, member }));
   const updateDriverProfile = async (profile: DriverMembership["profile"]) => {
-    if (current.localMode) {
-      window.localStorage.setItem("fleetvix-local-driver-profile", JSON.stringify(profile));
-      if (current.member) updateMember({ ...current.member, profile });
-      return;
-    }
-    if (!current.session) throw new Error("A connected account is required to update this driver profile.");
     const result = await saveDriverProfile(current.session.access_token, profile);
     updateMember(result.member);
   };
@@ -54,58 +47,22 @@ export function RoleProvider({ value, children }: { value: WorkspaceRole; childr
     setCurrent((previous) => ({ ...previous, invoices: (previous.invoices || []).map((invoice) => invoice.id === invoiceId ? { ...invoice, revokedAt: new Date().toISOString() } : invoice) }));
   };
   const updateOwnerMember = async (memberId: string, profile: DriverMembership["profile"]) => {
-    if (current.localMode) {
-      setCurrent((previous) => ({
-        ...previous,
-        members: (previous.members || []).map((member) => member.id === memberId ? { ...member, profile } : member),
-      }));
-      return;
-    }
-    if (!current.session) throw new Error("A connected account is required to update owner-managed drivers.");
     const result = await updateOwnerDriver(current.session.access_token, memberId, profile);
     setCurrent((previous) => ({ ...previous, members: (previous.members || []).map((member) => member.id === memberId ? result.member : member) }));
   };
   const updateOwnerMemberStatus = async (memberId: string, status: "Active" | "Blocked" | "Removed") => {
-    if (current.localMode) {
-      setCurrent((previous) => ({
-        ...previous,
-        members: (previous.members || []).map((member) => member.id === memberId
-          ? { ...member, profile: { ...member.profile, status } }
-          : member),
-      }));
-      return;
-    }
-    if (!current.session) throw new Error("A connected account is required to update driver access.");
     const result = await setOwnerDriverStatus(current.session.access_token, memberId, status);
     setCurrent((previous) => ({ ...previous, members: (previous.members || []).map((member) => member.id === memberId ? result.member : member) }));
   };
   const updateOwnerMemberRate = async (memberId: string, dailyRate: number) => {
-    if (current.localMode || !current.session) {
-      throw new Error("Driver pay rates require a connected owner workspace.");
-    }
     const result = await updateOwnerDriverRate(current.session.access_token, memberId, dailyRate);
     return result.state;
   };
   const deleteOwnerMember = async (memberId: string) => {
-    if (current.localMode) {
-      setCurrent((previous) => ({ ...previous, members: (previous.members || []).filter((member) => member.id !== memberId) }));
-      return;
-    }
-    if (!current.session) throw new Error("A connected account is required to remove an owner-managed driver.");
     await deleteOwnerDriver(current.session.access_token, memberId);
     setCurrent((previous) => ({ ...previous, members: (previous.members || []).filter((member) => member.id !== memberId) }));
   };
   const sendOwnerFile = async (memberId: string, file: DriverDocument) => {
-    if (current.localMode) {
-      setCurrent((previous) => ({
-        ...previous,
-        members: (previous.members || []).map((member) => member.id === memberId
-          ? { ...member, profile: { ...member.profile, sharedFiles: [...(member.profile.sharedFiles || []), file] } }
-          : member),
-      }));
-      return;
-    }
-    if (!current.session) throw new Error("A connected account is required to share files with drivers.");
     const result = await sendDriverFile(current.session.access_token, memberId, file);
     setCurrent((previous) => ({ ...previous, members: (previous.members || []).map((member) => member.id === memberId ? result.member : member) }));
   };

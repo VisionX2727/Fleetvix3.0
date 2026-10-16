@@ -49,10 +49,6 @@ export default function Settings() {
     setGstPercentage(state.settings.gstPercentage || 0);
   }, [state.settings]);
   const handleLogout = async () => {
-    if (!session) {
-      window.location.replace(new URL(import.meta.env.BASE_URL || "/", window.location.origin).toString());
-      return;
-    }
     const { error } = await signOut();
     if (error) {
       toast({ title: "Could not sign out", description: error.message });
@@ -78,20 +74,7 @@ export default function Settings() {
     const file = event.target.files?.[0];
     if (!file) return;
     if (!session) {
-      if (file.size > 5 * 1024 * 1024) {
-        toast({ title: "Logo is too large", description: "Choose an image no larger than 5 MB." });
-        event.target.value = "";
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = () => {
-        if (typeof reader.result === "string") {
-          dispatch({ type: "UPDATE_SETTINGS", payload: { logoUrl: reader.result } });
-          toast({ title: "Logo saved", description: "Your logo is saved in this browser." });
-        }
-      };
-      reader.onerror = () => toast({ title: "Could not read logo", description: "Choose the image again and retry." });
-      reader.readAsDataURL(file);
+      toast({ title: "Sign in required", description: "Please sign in again before uploading a logo." });
       return;
     }
     setLogoBusy(true);
@@ -134,11 +117,7 @@ export default function Settings() {
 
   const resetData = () => {
     if (!window.confirm("Reset all customers and fleet records? Driver accounts and their access will remain. This cannot be undone.")) return;
-    if (!session) {
-      dispatch({ type: "RESET_OWNER_DATA" });
-      toast({ title: "Fleet records reset", description: "Local fleet records were removed from this browser." });
-      return;
-    }
+    if (!session) return;
     void resetOwnerWorkspace(session.access_token)
       .then(() => {
         dispatch({ type: "RESET_OWNER_DATA" });
@@ -204,7 +183,7 @@ export default function Settings() {
           <Link href="/support" className="flex items-center justify-center gap-2 rounded-xl border border-primary/40 p-3 font-bold text-primary"><LifeBuoy size={17} /> Contact Support</Link>
         </section>
 
-        {session ? <section className="fm-settings-card space-y-4">
+        <section className="fm-settings-card space-y-4">
           <div className="flex items-center gap-3">
             <UserCircle size={40} className="text-muted-foreground" />
             <div>
@@ -223,13 +202,7 @@ export default function Settings() {
             <LogOut size={18} />
             {authBusy ? "Signing out..." : "Logout"}
           </button>
-        </section> : <section className="fm-settings-card space-y-3">
-          <div className="fm-settings-section-title">Local Workspace</div>
-          <p className="fm-settings-help">Your records are stored in this browser and are not connected to an account or synced across devices.</p>
-          <button type="button" onClick={handleLogout} className="w-full border border-primary/40 text-primary font-bold p-3 rounded-xl">
-            Choose Driver or Owner
-          </button>
-        </section>}
+        </section>
 
         <section className="fm-settings-card">
           <div className="fm-settings-section-title">Workspace Data</div>
