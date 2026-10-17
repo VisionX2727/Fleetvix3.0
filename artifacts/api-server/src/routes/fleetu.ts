@@ -47,14 +47,12 @@ type FleetuContext = { scope: "owner" | "driver"; data: unknown };
 type ChatContent = { role: "user" | "model"; parts: [{ text: string }] };
 
 type ProviderResult = {
-  provider: "gemini" | "groq";
+  provider: "gemini";
   answer: string;
 };
 
-// Gemini's current endpoint for the configured workspace key reports 3.6 as
-// the available model; keep this overridable for future provider changes.
+// Keep the model overridable so it can be changed without exposing the key.
 const GEMINI_MODEL = process.env.FLEETU_GEMINI_MODEL || "gemini-3.6-flash";
-const GROQ_MODEL = process.env.FLEETU_GROQ_MODEL || "llama-3.3-70b-versatile";
 
 async function buildContext(userId: string): Promise<FleetuContext | null> {
   const owner = await db.select().from(fleetWorkspaces).where(eq(fleetWorkspaces.ownerUserId, userId)).limit(1).then((rows) => rows[0]);
@@ -109,16 +107,6 @@ function extractGeminiAnswer(payload: unknown) {
     .trim();
 }
 
-function extractGroqAnswer(payload: unknown) {
-  const data = (payload && typeof payload === "object" ? payload : {}) as AnyRecord;
-  const choices = Array.isArray(data.choices) ? data.choices : [];
-  const firstChoice = choices[0] && typeof choices[0] === "object" ? choices[0] as AnyRecord : {};
-  const message = firstChoice.message && typeof firstChoice.message === "object"
-    ? firstChoice.message as AnyRecord
-    : {};
-  return String(message.content || "").trim();
-}
-
 async function askGemini(system: string, contents: ChatContent[], apiKey: string): Promise<ProviderResult> {
   const response = await fetch(
     `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(GEMINI_MODEL)}:generateContent`,
@@ -149,40 +137,6 @@ async function askGemini(system: string, contents: ChatContent[], apiKey: string
   return { provider: "gemini", answer };
 }
 
-async function askGroq(system: string, contents: ChatContent[], apiKey: string): Promise<ProviderResult> {
-  const response = await fetch("https://api.groq.com/openai/v1/chat/completions", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-      Authorization: `Bearer ${apiKey}`,
-    },
-    body: JSON.stringify({
-      model: GROQ_MODEL,
-      temperature: 0.2,
-      max_tokens: 8192,
-      messages: [
-        { role: "system", content: system },
-        ...contents.map((content) => ({
-          role: content.role === "model" ? "assistant" : "user",
-          content: content.parts[0].text,
-        })),
-      ],
-    }),
-    signal: AbortSignal.timeout(30000),
-  });
-  const payload = await response.json() as unknown;
-  if (!response.ok) {
-    const error = payload && typeof payload === "object" && "error" in payload
-      ? (payload as AnyRecord).error
-      : undefined;
-    const message = error && typeof error === "object" ? String((error as AnyRecord).message || "") : "";
-    throw new Error(message || `Groq request failed (${response.status})`);
-  }
-  const answer = extractGroqAnswer(payload);
-  if (!answer) throw new Error("Groq returned an empty response.");
-  return { provider: "groq", answer };
-}
-
 router.post("/chat", async (req, res) => {
   const message = String(req.body?.message || "").trim();
   if (!message || message.length > 2000) {
@@ -190,9 +144,8 @@ router.post("/chat", async (req, res) => {
     return;
   }
   const geminiKey = process.env.GEMINI_API_KEY;
-  const groqKey = process.env.GROQ_API_KEY;
-  if (!geminiKey && !groqKey) {
-    res.status(503).json({ error: "Fleetu is not configured yet. Configure Gemini or Groq for the assistant." });
+  if (!geminiKey) {
+    res.status(503).json({ error: "Fleetu is not configured yet. Add GEMINI_API_KEY to the backend secrets." });
     return;
   }
   const context = await buildContext(req.authUserId!);
@@ -217,26 +170,13 @@ router.post("/chat", async (req, res) => {
     },
   ];
 
-  const failures: string[] = [];
-  const providers: Array<() => Promise<ProviderResult>> = [];
-  if (geminiKey) providers.push(() => askGemini(systemPrompt(context.scope), contents, geminiKey));
-  if (groqKey) providers.push(() => askGroq(systemPrompt(context.scope), contents, groqKey));
-
-  for (const ask of providers) {
-    try {
-      const result = await ask();
-      res.json({ answer: result.answer, provider: result.provider, scope: context.scope });
-      return;
-    } catch (error) {
-      failures.push(error instanceof Error ? error.message : "Provider request failed");
-    }
+  try {
+    const result = await askGemini(systemPrompt(context.scope), contents, geminiKey);
+    res.json({ answer: result.answer, provider: result.provider, scope: context.scope });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Gemini request failed";
+    res.status(502).json({ error: `Fleetu could not get an answer from Gemini. ${message}` });
   }
-
-  res.status(502).json({
-    error: failures.length
-      ? `Fleetu could not get an answer from its AI providers. ${failures.join(" ")}`
-      : "Fleetu received an empty response. Try asking in a different way.",
-  });
 });
 
 export default router;
