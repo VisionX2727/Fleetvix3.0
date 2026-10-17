@@ -3,6 +3,7 @@ import { Readable } from "node:stream";
 import { and, eq } from "drizzle-orm";
 import { db, fleetInvoices, fleetMembers, fleetWorkspaces } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
+import { logger } from "../lib/logger";
 import { ObjectStorageService } from "../lib/objectStorage";
 
 const router: IRouter = Router();
@@ -19,6 +20,12 @@ const logoExtensions: Record<string, string> = {
   "image/gif": "gif",
 };
 let storageBucketReady: Promise<void> | null = null;
+
+logger.info({
+  supabaseUrlConfigured: Boolean(process.env.SUPABASE_URL),
+  supabaseServiceRoleConfigured: Boolean(process.env.SUPABASE_SERVICE_ROLE_KEY),
+}, "Supabase business-logo storage configuration");
+
 type MemberProfile = {
   name: string;
   phone: string;
