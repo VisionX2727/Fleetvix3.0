@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from "express";
+import { logger } from "./logger";
 
 declare global {
   namespace Express {
@@ -11,12 +12,26 @@ declare global {
 }
 
 const supabaseUrl = process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
-const supabaseKey = process.env.SUPABASE_PUBLISHABLE_KEY || process.env.SUPABASE_ANON_KEY || "";
+const supabaseKey =
+  process.env.SUPABASE_PUBLISHABLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  "";
 
 export async function requireAuth(req: Request, res: Response, next: NextFunction) {
-  const token = req.headers.authorization?.replace(/^Bearer\s+/i, "");
-  if (!token || !supabaseUrl || !supabaseKey) {
-    res.status(401).json({ error: "Authentication required" });
+  const token = req.headers.authorization?.match(/^Bearer\s+(.+)$/i)?.[1]?.trim();
+  if (!token) {
+    res.status(401).json({ error: "Your sign-in session is missing. Please sign in again." });
+    return;
+  }
+
+  if (!supabaseUrl || !supabaseKey) {
+    logger.error(
+      { hasSupabaseUrl: Boolean(supabaseUrl), hasSupabasePublishableKey: Boolean(supabaseKey) },
+      "Supabase authentication is not configured",
+    );
+    res.status(503).json({ error: "Authentication service is not configured. Please try again later." });
     return;
   }
   try {
