@@ -27,19 +27,34 @@ if (!basePath) {
   );
 }
 
+const supabaseUrl =
+  process.env.VITE_SUPABASE_URL || process.env.SUPABASE_URL || "";
+const supabasePublishableKey =
+  process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
+  process.env.VITE_SUPABASE_ANON_KEY ||
+  process.env.SUPABASE_PUBLISHABLE_KEY ||
+  process.env.SUPABASE_ANON_KEY ||
+  "";
+const hasValidSupabaseUrl = (() => {
+  try {
+    const url = new URL(supabaseUrl);
+    return (url.protocol === "https:" || url.protocol === "http:") && Boolean(url.hostname);
+  } catch {
+    return false;
+  }
+})();
+
+if (process.env.NODE_ENV !== "production") {
+  console.info(
+    `[Fleetvix] Supabase client config: URL ${hasValidSupabaseUrl ? "available" : "missing or invalid"}, publishable key ${supabasePublishableKey ? "available" : "missing"}.`,
+  );
+}
+
 export default defineConfig({
   base: basePath,
   define: {
-    __SUPABASE_URL__: JSON.stringify(
-      process.env.VITE_SUPABASE_URL ?? process.env.SUPABASE_URL ?? '',
-    ),
-    __SUPABASE_PUBLISHABLE_KEY__: JSON.stringify(
-      process.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
-        process.env.VITE_SUPABASE_ANON_KEY ||
-        process.env.SUPABASE_PUBLISHABLE_KEY ||
-        process.env.SUPABASE_ANON_KEY ||
-        '',
-    ),
+    __SUPABASE_URL__: JSON.stringify(supabaseUrl),
+    __SUPABASE_PUBLISHABLE_KEY__: JSON.stringify(supabasePublishableKey),
   },
   plugins: [
     react(),

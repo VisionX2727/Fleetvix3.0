@@ -250,24 +250,49 @@ async function ensureLogoBucket() {
   if (storageBucketReady) return storageBucketReady;
   storageBucketReady = (async () => {
     const { supabaseUrl, serviceRoleKey } = supabaseStorageHeaders();
-    const response = await fetch(`${supabaseUrl}/storage/v1/bucket`, {
+    const bucketUrl = `${supabaseUrl}/storage/v1/bucket`;
+    const headers = {
+      apikey: serviceRoleKey,
+      Authorization: `Bearer ${serviceRoleKey}`,
+      "Content-Type": "application/json",
+    };
+    const bucketConfig = {
+      id: logoBucket,
+      name: logoBucket,
+      public: true,
+      file_size_limit: 5 * 1024 * 1024,
+      allowed_mime_types: [...logoMimeTypes],
+    };
+    const response = await fetch(bucketUrl, {
       method: "POST",
-      headers: {
-        apikey: serviceRoleKey,
-        Authorization: `Bearer ${serviceRoleKey}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        id: logoBucket,
-        name: logoBucket,
-        public: true,
-        file_size_limit: 5 * 1024 * 1024,
-        allowed_mime_types: [...logoMimeTypes],
-      }),
+      headers,
+      body: JSON.stringify(bucketConfig),
     });
-    if (!response.ok && response.status !== 400 && response.status !== 409) {
+    if (response.ok) return;
+    if (response.status !== 400 && response.status !== 409) {
       const message = await response.text();
       throw new Error(`Could not prepare Supabase Storage (${response.status}): ${message.slice(0, 200)}`);
+    }
+
+    // A bucket created earlier may have limits or visibility that no longer
+    // match the logo upload flow. Verify it exists, then align its settings.
+    const existingBucket = await fetch(`${bucketUrl}/${encodeURIComponent(logoBucket)}`, { headers });
+    if (!existingBucket.ok) {
+      const message = await response.text();
+      throw new Error(`Could not prepare Supabase Storage (${response.status}): ${message.slice(0, 200)}`);
+    }
+    const updateResponse = await fetch(`${bucketUrl}/${encodeURIComponent(logoBucket)}`, {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({
+        public: bucketConfig.public,
+        file_size_limit: bucketConfig.file_size_limit,
+        allowed_mime_types: bucketConfig.allowed_mime_types,
+      }),
+    });
+    if (!updateResponse.ok) {
+      const message = await updateResponse.text();
+      throw new Error(`Could not configure Supabase logo storage (${updateResponse.status}): ${message.slice(0, 200)}`);
     }
   })().catch((error) => {
     storageBucketReady = null;

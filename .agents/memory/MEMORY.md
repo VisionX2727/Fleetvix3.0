@@ -1,1 +1,2 @@
 - [Fleetu AI and persistence](fleetvix-ai-data.md) — Fleetu uses Gemini through the backend; fleet records must persist in Supabase PostgreSQL.
+- [Secret visibility by runtime](workflow-secret-scope.md) — Shell checks may not see secrets that are configured for the managed app workflow.
