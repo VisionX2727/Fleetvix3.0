@@ -11,6 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useRole } from "@/lib/role";
+import { useStore } from "@/lib/store";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { useState } from "react";
 
@@ -29,6 +30,7 @@ export function Layout({ children }: { children: React.ReactNode }) {
   const [creditOpen, setCreditOpen] = useState(false);
   const mobileDevice = detectMobileDevice();
   const { role } = useRole();
+  const { syncStatus, retrySync } = useStore();
 
   const navItems = role === "driver"
     ? [
@@ -50,6 +52,12 @@ export function Layout({ children }: { children: React.ReactNode }) {
 
   return (
     <div className="fm-app-shell" data-device={mobileDevice ? "mobile" : "desktop"}>
+      {syncStatus === "error" && (
+        <div role="alert" className="fixed inset-x-3 top-3 z-50 flex items-center gap-3 rounded-xl border border-rose-400/40 bg-[#321c23] p-3 text-xs font-bold text-rose-100 shadow-lg">
+          <span className="min-w-0 flex-1">Cloud save failed. Your latest changes are still on this device.</span>
+          <button type="button" onClick={retrySync} className="shrink-0 rounded-lg bg-rose-300 px-3 py-2 text-xs font-black text-rose-950">Retry</button>
+        </div>
+      )}
       <main className="fm-main-content">
         {children}
       </main>

@@ -10,3 +10,5 @@ export * from './healthStatus';
 export * from './siteContent';
 export * from './siteContentInput';
 export * from './siteContentResponse';
+export * from './uploadFileMetadata';
+export * from './uploadUrlResult';

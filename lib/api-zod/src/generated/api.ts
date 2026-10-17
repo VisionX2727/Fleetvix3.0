@@ -148,3 +148,29 @@ export const UpdateAdminSiteContentResponse = zod.object({
 })
 
 
+/**
+ * @summary Request a private object upload URL
+ */
+export const requestUploadUrlBodyNameMax = 180;
+
+export const requestUploadUrlBodySizeMax = 10485760;
+
+export const requestUploadUrlBodyContentTypeMax = 120;
+
+
+
+export const RequestUploadUrlBody = zod.object({
+  "name": zod.string().min(1).max(requestUploadUrlBodyNameMax),
+  "size": zod.number().min(1).max(requestUploadUrlBodySizeMax),
+  "contentType": zod.string().min(1).max(requestUploadUrlBodyContentTypeMax)
+})
+
+
+
+
+export const RequestUploadUrlResponse = zod.object({
+  "uploadURL": zod.string(),
+  "objectPath": zod.string().min(1)
+})
+
+

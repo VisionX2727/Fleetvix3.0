@@ -5,6 +5,30 @@
  * API specification
  * OpenAPI spec version: 0.1.0
  */
+export interface UploadFileMetadata {
+  /**
+     * @minLength 1
+     * @maxLength 180
+     */
+  name: string;
+  /**
+     * @minimum 1
+     * @maximum 10485760
+     */
+  size: number;
+  /**
+     * @minLength 1
+     * @maxLength 120
+     */
+  contentType: string;
+}
+
+export interface UploadUrlResult {
+  uploadURL: string;
+  /** @minLength 1 */
+  objectPath: string;
+}
+
 export interface HealthStatus {
   status: string;
 }

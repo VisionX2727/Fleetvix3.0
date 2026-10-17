@@ -7,6 +7,7 @@ export type DriverDocument = {
   type: string;
   dataUrl: string;
   uploadedAt: string;
+  downloadUrl?: string;
 };
 
 export type DriverMembership = {
@@ -152,6 +153,54 @@ export async function uploadBusinessLogo(token: string, file: File) {
     method: "POST",
     body: JSON.stringify({ dataUrl }),
   });
+}
+
+export async function uploadWorkspaceFile(token: string, file: File) {
+  if (file.size > 10 * 1024 * 1024) throw new Error("Files must be 10 MB or smaller.");
+  if (!file.type) throw new Error("This file type is not supported by your browser.");
+  const { uploadURL, objectPath } = await request<{ uploadURL: string; objectPath: string }>(
+    "/storage/uploads/request-url",
+    token,
+    {
+      method: "POST",
+      body: JSON.stringify({ name: file.name, size: file.size, contentType: file.type }),
+    },
+    "api",
+  );
+  const response = await fetch(uploadURL, {
+    method: "PUT",
+    headers: { "Content-Type": file.type },
+    body: file,
+  });
+  if (!response.ok) throw new Error("The file could not be uploaded. Please try again.");
+  return objectPath;
+}
+
+export async function getWorkspaceFileBlob(token: string, filePath: string) {
+  const match = filePath.match(/^\/objects\/uploads\/([A-Za-z0-9-]+)$/);
+  const url = match
+    ? (await request<{ url: string }>(`/files/${encodeURIComponent(match[1])}/url`, token)).url
+    : filePath;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("This file could not be opened. Check your connection and try again.");
+  return response.blob();
+}
+
+export async function openWorkspaceFile(token: string, filePath: string) {
+  const blob = await getWorkspaceFileBlob(token, filePath);
+  const objectUrl = URL.createObjectURL(blob);
+  window.open(objectUrl, "_blank", "noopener");
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
+}
+
+export async function downloadWorkspaceFile(token: string, filePath: string, filename: string) {
+  const blob = await getWorkspaceFileBlob(token, filePath);
+  const objectUrl = URL.createObjectURL(blob);
+  const anchor = document.createElement("a");
+  anchor.href = objectUrl;
+  anchor.download = filename;
+  anchor.click();
+  window.setTimeout(() => URL.revokeObjectURL(objectUrl), 60_000);
 }
 
 export function joinOwnerWorkspace(token: string, code: string, profile: DriverMembership["profile"]) {

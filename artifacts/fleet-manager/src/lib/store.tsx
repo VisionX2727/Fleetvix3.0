@@ -92,6 +92,8 @@ function normalizeState(value: Partial<AppState>): AppState {
 type StoreContextType = {
   state: AppState;
   dispatch: (action: { type: string; payload?: any }) => void;
+  syncStatus: "saved" | "saving" | "error";
+  retrySync: () => void;
 };
 
 const StoreContext = createContext<StoreContextType | undefined>(undefined);
@@ -146,6 +148,8 @@ export function StoreProvider({
     return initial;
   });
   const [cloudLoaded, setCloudLoaded] = useState(false);
+  const [syncStatus, setSyncStatus] = useState<StoreContextType["syncStatus"]>("saved");
+  const [syncRetry, setSyncRetry] = useState(0);
   const resetRequested = useRef(false);
   const syncPending = useRef(false);
   const syncVersion = useRef(0);
@@ -181,34 +185,33 @@ export function StoreProvider({
     if (!cloudLoaded || !cloudSync) return;
     const version = ++syncVersion.current;
     syncPending.current = true;
-    let started = false;
-    const timer = window.setTimeout(() => {
-      started = true;
-      // Keep writes in order. Without this queue, an older request that was
-      // already in flight could finish after a newer request and overwrite it.
-      syncQueue.current = syncQueue.current
-        .catch(() => undefined)
-        .then(async () => {
-          if (role === "driver" && accessToken) {
-            await saveDriverWorkspace(accessToken, state);
-          } else if (role === "owner" && accessToken) {
-            await saveOwnerWorkspace(accessToken, state);
-          } else if (supabaseConfigured) {
-            await supabase.auth.updateUser({ data: { fleet_manager_data: state } });
-          }
-        })
-        .catch((error) => {
-          console.error("Fleet cloud sync failed", error);
-        })
-        .finally(() => {
-          if (syncVersion.current === version) syncPending.current = false;
-        });
-    }, 700);
-    return () => {
-      window.clearTimeout(timer);
-      if (!started && syncVersion.current === version) syncPending.current = false;
-    };
-  }, [state, userId, cloudLoaded, cloudSync, role, accessToken]);
+    setSyncStatus("saving");
+    // Save immediately instead of debouncing: a page refresh must not cancel
+    // the only pending write. Serialize requests so the newest snapshot wins.
+    syncQueue.current = syncQueue.current
+      .catch(() => undefined)
+      .then(async () => {
+        if (version !== syncVersion.current) return;
+        if (role === "driver" && accessToken) {
+          await saveDriverWorkspace(accessToken, state);
+        } else if (role === "owner" && accessToken) {
+          await saveOwnerWorkspace(accessToken, state);
+        } else if (supabaseConfigured) {
+          const { error } = await supabase.auth.updateUser({ data: { fleet_manager_data: state } });
+          if (error) throw error;
+        }
+      })
+      .then(() => {
+        if (syncVersion.current === version) setSyncStatus("saved");
+      })
+      .catch((error) => {
+        console.error("Fleet cloud sync failed", error);
+        if (syncVersion.current === version) setSyncStatus("error");
+      })
+      .finally(() => {
+        if (syncVersion.current === version) syncPending.current = false;
+      });
+  }, [state, userId, cloudLoaded, cloudSync, role, accessToken, syncRetry]);
 
   const dispatch = (action: { type: string; payload?: any }) => {
     if (action.type === "RESET_DATA") {
@@ -430,7 +433,7 @@ export function StoreProvider({
     });
   };
 
-  return <StoreContext.Provider value={{ state, dispatch }}>{children}</StoreContext.Provider>;
+  return <StoreContext.Provider value={{ state, dispatch, syncStatus, retrySync: () => setSyncRetry((count) => count + 1) }}>{children}</StoreContext.Provider>;
 }
 
 export function useStore() {

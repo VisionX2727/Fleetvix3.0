@@ -1,8 +1,7 @@
 import { Layout } from "@/components/layout";
 import { useRole } from "@/lib/role";
 import { useStore } from "@/lib/store";
-import { DriverDocument } from "@/lib/workspace";
-import { resetDriverWorkspace } from "@/lib/workspace";
+import { DriverDocument, openWorkspaceFile, resetDriverWorkspace, uploadWorkspaceFile } from "@/lib/workspace";
 import { useAuth } from "@/lib/auth";
 import { ArrowLeft, Download, FileUp, LifeBuoy, LogOut, Save, Trash2 } from "lucide-react";
 import { createHtmlPdf } from "@/lib/pdf";
@@ -20,19 +19,35 @@ export default function DriverSettings() {
   const [vehicleIds, setVehicleIds] = useState(profile?.vehicleIds || []);
   const [documents, setDocuments] = useState<DriverDocument[]>(profile?.documents || []);
   const [message, setMessage] = useState("");
+  const [documentBusy, setDocumentBusy] = useState(false);
 
   if (!profile) return null;
   const save = async () => {
-    await updateDriverProfile({ ...profile, name, phone, address, vehicleIds, documents });
-    setMessage("Driver profile saved.");
-    window.setTimeout(() => window.location.reload(), 400);
+    try {
+      await updateDriverProfile({ ...profile, name, phone, address, vehicleIds, documents });
+      setMessage("Driver profile saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not save your profile. Please try again.");
+    }
   };
-  const uploadDocument = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const uploadDocument = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => setDocuments((current) => [...current, { id: `${Date.now()}`, name: file.name, type: file.type, dataUrl: String(reader.result), uploadedAt: new Date().toISOString().slice(0, 10) }]);
-    reader.readAsDataURL(file);
+    if (!session) return;
+    setDocumentBusy(true);
+    setMessage("");
+    try {
+      const dataUrl = await uploadWorkspaceFile(session.access_token, file);
+      const nextDocuments = [...documents, { id: `${Date.now()}`, name: file.name, type: file.type, dataUrl, uploadedAt: new Date().toISOString().slice(0, 10) }];
+      await updateDriverProfile({ ...profile, name, phone, address, vehicleIds, documents: nextDocuments });
+      setDocuments(nextDocuments);
+      setMessage("Document uploaded and saved.");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Could not upload the document. Please try again.");
+    } finally {
+      setDocumentBusy(false);
+      event.target.value = "";
+    }
   };
   const resetMyData = () => {
     if (!window.confirm("Factory reset your driver records? Your driver account and vehicle access will remain, but your synced logs, fuel, payments, notes and maintenance records will be deleted.")) return;
@@ -70,8 +85,8 @@ export default function DriverSettings() {
         <section className="fm-settings-card space-y-3"><div className="fm-settings-section-title">My Details</div><label className="fm-settings-label">Name<input value={name} onChange={(event) => setName(event.target.value)} /></label><label className="fm-settings-label">Mobile Number<input value={phone} onChange={(event) => setPhone(event.target.value)} /></label><label className="fm-settings-label">Address<textarea value={address} onChange={(event) => setAddress(event.target.value)} /></label></section>
         <section className="fm-settings-card space-y-3"><div className="fm-settings-section-title">Owner-set Daily Rate</div><p className="text-xs text-muted-foreground">Only the owner can change your rate. Each new work log stores the rate that was active on that day.</p><div className="rounded-xl bg-muted p-4 text-xl font-black text-primary">₹{(state.drivers[0]?.dailyRate || 0).toLocaleString("en-IN")} <span className="text-sm font-bold text-muted-foreground">per working day</span></div></section>
         <section className="fm-settings-card space-y-3"><div className="fm-settings-section-title">My Vehicles</div><p className="text-xs text-muted-foreground">Select only vehicles you work with. You cannot access other vehicles.</p>{availableVehicles.length ? availableVehicles.map((vehicle) => <label key={vehicle.id} className="flex items-center gap-3 rounded-xl bg-muted p-3 text-sm font-bold"><input type="checkbox" checked={vehicleIds.includes(vehicle.id)} onChange={(event) => setVehicleIds((current) => event.target.checked ? [...new Set([...current, vehicle.id])] : current.filter((id) => id !== vehicle.id))} />{vehicle.name} <span className="ml-auto text-xs text-muted-foreground">{vehicle.type}</span></label>) : <p className="text-sm text-muted-foreground">The owner has not added vehicles yet.</p>}</section>
-        <section className="fm-settings-card space-y-3"><div className="fm-settings-section-title">Optional Documents</div><label className="flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-border p-4 text-sm font-bold text-primary"><FileUp size={17} /> Upload license or document<input type="file" accept="image/*,.pdf" onChange={uploadDocument} className="sr-only" /></label>{documents.map((document) => <div key={document.id} className="flex items-center justify-between rounded-xl bg-muted p-3 text-xs"><a href={document.dataUrl} target="_blank" rel="noreferrer" className="truncate font-bold text-primary">{document.name}</a><span className="text-muted-foreground">{document.uploadedAt}</span></div>)}</section>
-        {(profile.sharedFiles || []).length > 0 && <section className="fm-settings-card space-y-3"><div className="fm-settings-section-title">Files from Owner</div>{(profile.sharedFiles || []).map((file) => <a key={file.id} href={file.dataUrl} download={file.name} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-xl bg-muted p-3 text-sm font-bold text-primary"><Download size={17} /><span className="min-w-0 flex-1 truncate">{file.name}</span><span className="text-xs text-muted-foreground">{file.uploadedAt}</span></a>)}</section>}
+        <section className="fm-settings-card space-y-3"><div className="fm-settings-section-title">Optional Documents</div><label className={`flex items-center justify-center gap-2 rounded-xl border border-dashed border-border p-4 text-sm font-bold text-primary ${documentBusy ? "cursor-wait opacity-60" : "cursor-pointer"}`}><FileUp size={17} /> {documentBusy ? "Uploading…" : "Upload license or document"}<input type="file" accept="image/*,.pdf" onChange={(event) => void uploadDocument(event)} disabled={documentBusy} className="sr-only" /></label>{documents.map((document) => <div key={document.id} className="flex items-center justify-between rounded-xl bg-muted p-3 text-xs"><button type="button" onClick={() => session && void openWorkspaceFile(session.access_token, document.dataUrl).catch((error) => setMessage(error instanceof Error ? error.message : "Could not open the document."))} className="truncate text-left font-bold text-primary">{document.name}</button><span className="text-muted-foreground">{document.uploadedAt}</span></div>)}</section>
+        {(profile.sharedFiles || []).length > 0 && <section className="fm-settings-card space-y-3"><div className="fm-settings-section-title">Files from Owner</div>{(profile.sharedFiles || []).map((file) => <a key={file.id} href={file.downloadUrl || file.dataUrl} download={file.name} target="_blank" rel="noreferrer" className="flex items-center gap-3 rounded-xl bg-muted p-3 text-sm font-bold text-primary"><Download size={17} /><span className="min-w-0 flex-1 truncate">{file.name}</span><span className="text-xs text-muted-foreground">{file.uploadedAt}</span></a>)}</section>}
         {message && <p className="rounded-xl bg-emerald-500/10 p-3 text-sm text-emerald-300">{message}</p>}
          <section className="fm-settings-card space-y-3"><div className="fm-settings-section-title">Help & Support</div><p className="text-xs text-muted-foreground">Need help with your vehicle, attendance, work logs or account?</p><Link href="/support" className="flex items-center justify-center gap-2 rounded-xl border border-primary/40 p-3 font-bold text-primary"><LifeBuoy size={17} /> Contact Support</Link></section>
         <section className="fm-settings-card space-y-3"><div className="fm-settings-section-title">Driver Data</div><p className="text-xs text-muted-foreground">Reset this device's driver workspace records without removing your owner membership or previously synced owner history.</p><button type="button" onClick={() => void downloadDriverReport()} className="flex w-full items-center justify-center gap-2 rounded-xl border border-primary/40 p-3 font-bold text-primary"><Download size={17} /> Download Driver Report PDF</button><button type="button" onClick={resetMyData} className="flex w-full items-center justify-center gap-2 rounded-xl border border-rose-400/40 p-3 font-bold text-rose-300"><Trash2 size={17} /> Reset All Driver Data</button></section>

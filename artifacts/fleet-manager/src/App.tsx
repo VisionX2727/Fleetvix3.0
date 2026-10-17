@@ -217,16 +217,39 @@ function RoleSelection({
 function AuthenticatedShell() {
   const { user, session, loading } = useAuth();
   const [workspace, setWorkspace] = useState<WorkspaceResponse | null>(null);
+  const [workspaceLoading, setWorkspaceLoading] = useState(true);
+  const [workspaceError, setWorkspaceError] = useState("");
+  const [workspaceRetry, setWorkspaceRetry] = useState(0);
 
   const publicPath = window.location.pathname.replace(/\/$/, '') || '/';
-  if (publicPath === '/terms-and-conditions') return <TermsAndConditions />;
-  if (publicPath === '/privacy-policy') return <PrivacyPolicy />;
+  const adminPath = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
 
   useEffect(() => {
-    // The role choice should not depend on a workspace lookup succeeding.
-    // Clear any prior account's workspace when the signed-in user changes.
+    let active = true;
+    if (loading) return () => { active = false; };
+    if (!user || !session || adminPath || publicPath === "/terms-and-conditions" || publicPath === "/privacy-policy" || isAdminEmail(user.email)) {
+      setWorkspace(null);
+      setWorkspaceLoading(false);
+      setWorkspaceError("");
+      return () => { active = false; };
+    }
+
     setWorkspace(null);
-  }, [user?.id]);
+    setWorkspaceLoading(true);
+    setWorkspaceError("");
+    void getWorkspace(session.access_token)
+      .then((latest) => {
+        if (active) setWorkspace(latest);
+      })
+      .catch((cause) => {
+        if (active) setWorkspaceError(cause instanceof Error ? cause.message : "Could not load your workspace.");
+      })
+      .finally(() => {
+        if (active) setWorkspaceLoading(false);
+      });
+
+    return () => { active = false; };
+  }, [loading, user?.id, session?.access_token, adminPath, publicPath, workspaceRetry]);
 
   const refreshWorkspace = async () => {
     if (!session) return;
@@ -234,10 +257,24 @@ function AuthenticatedShell() {
     setWorkspace(latest);
   };
 
+  if (publicPath === '/terms-and-conditions') return <TermsAndConditions />;
+  if (publicPath === '/privacy-policy') return <PrivacyPolicy />;
   if (loading) return <Splash />;
-  const adminPath = window.location.pathname === "/admin" || window.location.pathname.startsWith("/admin/");
   if (!user || !session) return <Login adminOnly={adminPath} />;
   if (isAdminEmail(user.email) || adminPath) return <AdminDashboard />;
+  if (workspaceLoading) return <Splash />;
+  if (workspaceError) {
+    return (
+      <main className="min-h-[100dvh] bg-background px-5 py-10 text-foreground">
+        <div className="mx-auto flex min-h-[80dvh] w-full max-w-md flex-col justify-center gap-4">
+          <img src={splashLogo} alt="Fleetvix logo" className="fm-login-logo mx-auto" />
+          <h1 className="text-center text-2xl font-black">Could not load your workspace</h1>
+          <p role="alert" className="rounded-xl bg-destructive/10 p-4 text-sm text-destructive">{workspaceError}</p>
+          <button type="button" onClick={() => setWorkspaceRetry((count) => count + 1)} className="w-full rounded-xl bg-primary p-4 font-black text-primary-foreground">Try again</button>
+        </div>
+      </main>
+    );
+  }
   if (!workspace) return <RoleSelection userId={user.id} accessToken={session.access_token} onReady={setWorkspace} />;
   if (!workspace.role) {
     return <RoleSelection userId={user.id} accessToken={session.access_token} onReady={setWorkspace} />;

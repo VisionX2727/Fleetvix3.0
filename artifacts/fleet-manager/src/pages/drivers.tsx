@@ -8,12 +8,14 @@ import { useRole } from "@/lib/role";
 import { useAuth } from "@/lib/auth";
 import { createInvoiceHtml } from "@/lib/invoice";
 import { createHtmlPdf } from "@/lib/pdf";
-import { revokeDriverInvoice, sendDriverInvoice, type DriverDocument } from "@/lib/workspace";
+import { downloadWorkspaceFile, openWorkspaceFile, revokeDriverInvoice, sendDriverInvoice, uploadWorkspaceFile, type DriverDocument } from "@/lib/workspace";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Drivers() {
   const { state, dispatch } = useStore();
   const { members = [], invoices = [], addInvoice, removeInvoice, updateOwnerMemberStatus, updateOwnerMemberRate, deleteOwnerMember, sendOwnerFile } = useRole();
   const { session } = useAuth();
+  const { toast } = useToast();
   const [location] = useLocation();
   const [isAddOpen, setIsAddOpen] = useState(false);
   const [payDriverId, setPayDriverId] = useState<string | null>(null);
@@ -105,16 +107,22 @@ export default function Drivers() {
     }
   };
 
-  const sendFileToMember = (member: typeof members[number], event: React.ChangeEvent<HTMLInputElement>) => {
+  const sendFileToMember = async (member: typeof members[number], event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (!file) return;
-    const reader = new FileReader();
-    reader.onload = () => {
-      const payload: DriverDocument = { id: `${Date.now()}`, name: file.name, type: file.type, dataUrl: String(reader.result), uploadedAt: new Date().toISOString().slice(0, 10) };
-      void sendOwnerFile(member.id, payload);
-    };
-    reader.readAsDataURL(file);
     event.target.value = "";
+    if (!session) return;
+    setMemberBusy(`file:${member.id}`);
+    try {
+      const dataUrl = await uploadWorkspaceFile(session.access_token, file);
+      const payload: DriverDocument = { id: `${Date.now()}`, name: file.name, type: file.type, dataUrl, uploadedAt: new Date().toISOString().slice(0, 10) };
+      await sendOwnerFile(member.id, payload);
+      toast({ title: "File saved", description: `${file.name} was sent to ${member.profile.name || "the driver"}.` });
+    } catch (error) {
+      toast({ title: "Could not save file", description: error instanceof Error ? error.message : "Please try again." });
+    } finally {
+      setMemberBusy(null);
+    }
   };
   const memberForDriver = (driverId: string) => members.find((member) => member.id === driverId);
   const downloadDriverReport = async (driver: Driver) => {
@@ -323,7 +331,7 @@ export default function Drivers() {
                     {driver && <><button type="button" onClick={() => openEditDriver(driver)} className="rounded-lg bg-primary/15 px-3 py-2 text-xs font-bold text-primary"><Pencil size={13} className="mr-1 inline" />Edit</button><button type="button" onClick={() => { setPayDriverId(driver.id); setPayAmount(driverEarned(driver.id)); }} className="rounded-lg bg-primary/15 px-3 py-2 text-xs font-bold text-primary"><IndianRupee size={13} className="mr-1 inline" />Pay</button><button type="button" onClick={() => void downloadDriverReport(driver)} className="rounded-lg bg-primary/15 px-3 py-2 text-xs font-bold text-primary"><Download size={13} className="mr-1 inline" />Report</button><button type="button" onClick={() => setHistoryDriverId(driver.id)} className="rounded-lg bg-muted px-3 py-2 text-xs font-bold"><History size={13} className="mr-1 inline" />Payments</button>{!member && <button type="button" onClick={() => deleteDriver(driver)} className="rounded-lg border border-rose-400/40 px-3 py-2 text-xs font-bold text-rose-300"><Trash2 size={13} className="mr-1 inline" />Delete</button>}</>}
                     {member && <><button type="button" onClick={() => { setInvoiceMemberId(member.driverUserId); setSendDialogOpen(true); }} className="rounded-lg bg-primary/15 px-3 py-2 text-xs font-bold text-primary"><Send size={13} className="mr-1 inline" />Send invoices &amp; files</button><button type="button" onClick={() => setFilesHistoryOpen(true)} className="rounded-lg bg-muted px-3 py-2 text-xs font-bold"><History size={13} className="mr-1 inline" />Files history</button>{member.profile.status === "Blocked" ? <button type="button" disabled={memberBusy === member.id} onClick={() => void setMemberStatus(member, "Active")} className="rounded-lg bg-emerald-500/15 px-3 py-2 text-xs font-bold text-emerald-300"><RotateCcw size={13} className="mr-1 inline" />Unblock</button> : member.profile.status !== "Removed" && <button type="button" disabled={memberBusy === member.id} onClick={() => void setMemberStatus(member, "Blocked")} className="rounded-lg bg-amber-500/15 px-3 py-2 text-xs font-bold text-amber-300"><Ban size={13} className="mr-1 inline" />Block</button>}{member.profile.status !== "Removed" && <button type="button" disabled={memberBusy === member.id} onClick={() => void setMemberStatus(member, "Removed")} className="rounded-lg bg-rose-500/15 px-3 py-2 text-xs font-bold text-rose-300"><UserMinus size={13} className="mr-1 inline" />Remove</button>}<button type="button" disabled={memberBusy === member.id} onClick={() => void removeMemberPermanently(member)} className="rounded-lg border border-rose-400/30 px-3 py-2 text-xs font-bold text-rose-300"><Trash2 size={13} className="mr-1 inline" />Delete driver</button></>}
                  </div>
-                  {member && <div className="mb-4 rounded-xl bg-muted p-3 text-sm"><strong>{member.profile.status || "Active"}</strong><span className="ml-2 text-muted-foreground">{member.profile.vehicleIds.length} assigned vehicle(s)</span>{vehicles.length > 0 && <div className="mt-2 text-xs font-bold text-primary">Vehicles: {vehicles.map((item) => item.name).join(", ")}</div>}{member.profile.documents.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{member.profile.documents.map((document) => <a key={document.id} href={document.dataUrl} target="_blank" rel="noreferrer" className="rounded-lg bg-card px-2 py-1 text-xs font-bold text-primary">{document.name}</a>)}</div>}<form className="mt-3 flex items-end gap-2 border-t border-border pt-3" onSubmit={(event) => { event.preventDefault(); void saveJoinedDriverRate(member.id); }}><label className="min-w-0 flex-1 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Daily rate (₹)<input type="number" min="0" value={rateDraft || ""} onChange={(event) => setRateDraft(Number(event.target.value))} className="mt-1 w-full rounded-lg bg-card p-2 text-sm font-black text-foreground outline-none" /></label><button type="submit" disabled={rateBusy} className="rounded-lg bg-primary px-3 py-2 text-xs font-black text-primary-foreground">{rateBusy ? "Saving…" : "Save rate"}</button></form></div>}
+                  {member && <div className="mb-4 rounded-xl bg-muted p-3 text-sm"><strong>{member.profile.status || "Active"}</strong><span className="ml-2 text-muted-foreground">{member.profile.vehicleIds.length} assigned vehicle(s)</span>{vehicles.length > 0 && <div className="mt-2 text-xs font-bold text-primary">Vehicles: {vehicles.map((item) => item.name).join(", ")}</div>}{member.profile.documents.length > 0 && <div className="mt-2 flex flex-wrap gap-2">{member.profile.documents.map((document) => <a key={document.id} href={document.downloadUrl || document.dataUrl} target="_blank" rel="noreferrer" className="rounded-lg bg-card px-2 py-1 text-xs font-bold text-primary">{document.name}</a>)}</div>}<form className="mt-3 flex items-end gap-2 border-t border-border pt-3" onSubmit={(event) => { event.preventDefault(); void saveJoinedDriverRate(member.id); }}><label className="min-w-0 flex-1 text-[10px] font-black uppercase tracking-wider text-muted-foreground">Daily rate (₹)<input type="number" min="0" value={rateDraft || ""} onChange={(event) => setRateDraft(Number(event.target.value))} className="mt-1 w-full rounded-lg bg-card p-2 text-sm font-black text-foreground outline-none" /></label><button type="submit" disabled={rateBusy} className="rounded-lg bg-primary px-3 py-2 text-xs font-black text-primary-foreground">{rateBusy ? "Saving…" : "Save rate"}</button></form></div>}
                  <div className="fm-kpi-grid"><div><span>Worked days</span><strong>{assignedDates.size}</strong></div><div><span>Earned</span><strong>₹{driver ? driverEarned(driver.id).toLocaleString("en-IN") : "0"}</strong></div><div><span>Paid</span><strong>₹{driver ? driverPaid(driver.id).toLocaleString("en-IN") : "0"}</strong></div></div>
                 <div className="fm-stack">
                   {allLogs.length === 0 && absentDates.length === 0 && <p className="fm-muted">No work history yet.</p>}
@@ -368,7 +376,7 @@ export default function Drivers() {
             const files = target?.profile.sharedFiles || [];
             return (
               <div className="space-y-3 pt-2">
-                {files.map((file) => <a key={file.id} href={file.dataUrl} download={file.name} target="_blank" rel="noreferrer" className="flex items-center justify-between rounded-xl bg-muted p-3 text-sm font-bold text-primary"><span className="truncate">{file.name}</span><span className="ml-2 shrink-0 text-xs text-muted-foreground">{file.uploadedAt}</span></a>)}
+                {files.map((file) => <button key={file.id} type="button" onClick={() => session && void downloadWorkspaceFile(session.access_token, file.dataUrl, file.name).catch((error) => toast({ title: "Could not open file", description: error instanceof Error ? error.message : "Please try again." }))} className="flex w-full items-center justify-between rounded-xl bg-muted p-3 text-left text-sm font-bold text-primary"><span className="truncate">{file.name}</span><span className="ml-2 shrink-0 text-xs text-muted-foreground">{file.uploadedAt}</span></button>)}
                 {targetInvoices.map((invoice) => <div key={invoice.id} className="flex items-center justify-between rounded-xl bg-muted p-3 text-sm"><span className="truncate">{invoice.title}</span><span className={`ml-2 shrink-0 text-xs font-bold ${invoice.revokedAt ? "text-rose-300" : "text-emerald-300"}`}>{invoice.revokedAt ? "Revoked" : "Sent"}</span></div>)}
                 {!files.length && !targetInvoices.length && <p className="py-6 text-center text-sm text-muted-foreground">No files or invoices sent yet.</p>}
               </div>

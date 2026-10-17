@@ -5,6 +5,7 @@ import supportRouter from "./support";
 import adminRouter from "./admin";
 import fleetuRouter from "./fleetu";
 import publicRouter from "./public";
+import storageRouter from "./storage";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use("/support", supportRouter);
 router.use("/admin", adminRouter);
 router.use("/fleetu", fleetuRouter);
 router.use("/public", publicRouter);
+router.use(storageRouter);
 
 export default router;

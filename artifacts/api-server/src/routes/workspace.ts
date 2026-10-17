@@ -1,10 +1,13 @@
 import { Router, type IRouter } from "express";
+import { Readable } from "node:stream";
 import { and, eq } from "drizzle-orm";
 import { db, fleetInvoices, fleetMembers, fleetWorkspaces } from "@workspace/db";
 import { requireAuth } from "../lib/auth";
+import { ObjectStorageService } from "../lib/objectStorage";
 
 const router: IRouter = Router();
 router.use(requireAuth);
+const objectStorage = new ObjectStorageService();
 
 type AnyRecord = Record<string, any>;
 const logoBucket = process.env.SUPABASE_STORAGE_BUCKET || "fleet-manager-assets";
@@ -21,8 +24,8 @@ type MemberProfile = {
   phone: string;
   address?: string;
   vehicleIds: string[];
-  documents: Array<{ id: string; name: string; type: string; dataUrl: string; uploadedAt: string }>;
-  sharedFiles: Array<{ id: string; name: string; type: string; dataUrl: string; uploadedAt: string }>;
+  documents: Array<{ id: string; name: string; type: string; dataUrl: string; uploadedAt: string; downloadUrl?: string }>;
+  sharedFiles: Array<{ id: string; name: string; type: string; dataUrl: string; uploadedAt: string; downloadUrl?: string }>;
   status?: "Active" | "Blocked" | "Removed" | "Suspended";
 };
 
@@ -32,14 +35,47 @@ function id(prefix: string) {
 
 function profile(value: unknown): MemberProfile {
   const input = (value && typeof value === "object" ? value : {}) as Partial<MemberProfile>;
+  const normalizeFile = (file: unknown) => {
+    const record = (file && typeof file === "object" ? file : {}) as MemberProfile["documents"][number];
+    const { downloadUrl: _downloadUrl, ...storedRecord } = record;
+    let dataUrl = String(record.dataUrl || "");
+    try {
+      if (dataUrl.startsWith("https://storage.googleapis.com/")) {
+        dataUrl = objectStorage.normalizeObjectEntityPath(dataUrl);
+      }
+    } catch {
+      // Preserve legacy links if they are not private App Storage objects.
+    }
+    return { ...storedRecord, dataUrl };
+  };
   return {
     name: String(input.name || ""),
     phone: String(input.phone || ""),
     address: input.address ? String(input.address) : "",
     vehicleIds: Array.isArray(input.vehicleIds) ? input.vehicleIds.map(String) : [],
-    documents: Array.isArray(input.documents) ? input.documents as MemberProfile["documents"] : [],
-    sharedFiles: Array.isArray(input.sharedFiles) ? input.sharedFiles as MemberProfile["sharedFiles"] : [],
+    documents: Array.isArray(input.documents) ? input.documents.map(normalizeFile) : [],
+    sharedFiles: Array.isArray(input.sharedFiles) ? input.sharedFiles.map(normalizeFile) : [],
     status: input.status === "Blocked" || input.status === "Removed" || input.status === "Suspended" ? input.status : "Active",
+  };
+}
+
+async function presentMember<T extends { profile: unknown }>(member: T) {
+  const memberProfile = profile(member.profile);
+  const presentFiles = async (files: MemberProfile["documents"]) => Promise.all(files.map(async (file) => {
+    if (!file.dataUrl.startsWith("/objects/uploads/")) return file;
+    try {
+      return { ...file, downloadUrl: await objectStorage.getObjectEntityDownloadURL(file.dataUrl, 3600) };
+    } catch {
+      return file;
+    }
+  }));
+  return {
+    ...member,
+    profile: {
+      ...memberProfile,
+      documents: await presentFiles(memberProfile.documents),
+      sharedFiles: await presentFiles(memberProfile.sharedFiles),
+    },
   };
 }
 
@@ -246,7 +282,7 @@ router.get("/", async (req, res) => {
   if (owner) {
     const members = await db.select().from(fleetMembers).where(eq(fleetMembers.ownerUserId, userId));
     const invoices = await db.select().from(fleetInvoices).where(eq(fleetInvoices.ownerUserId, userId));
-    res.json({ role: "owner", ownerUserId: userId, state: owner.state, inviteCode: owner.inviteCode, members, invoices });
+    res.json({ role: "owner", ownerUserId: userId, state: owner.state, inviteCode: owner.inviteCode, members: await Promise.all(members.map(presentMember)), invoices });
     return;
   }
   const member = await memberForDriver(userId);
@@ -263,14 +299,14 @@ router.get("/", async (req, res) => {
   const ownerState = normalizeState(workspace.state);
   const invoices = await db.select().from(fleetInvoices).where(and(eq(fleetInvoices.driverUserId, userId), eq(fleetInvoices.ownerUserId, member.ownerUserId)));
   if (memberProfile.status === "Blocked") {
-    res.json({ role: "blocked", ownerUserId: member.ownerUserId, member, ownerSettings: ownerState.settings || {}, availableVehicles: [], invoices });
+    res.json({ role: "blocked", ownerUserId: member.ownerUserId, member: await presentMember(member), ownerSettings: ownerState.settings || {}, availableVehicles: [], invoices });
     return;
   }
   if (memberProfile.status === "Removed") {
-    res.json({ role: "removed", ownerUserId: member.ownerUserId, member, ownerSettings: ownerState.settings || {}, availableVehicles: [], invoices });
+    res.json({ role: "removed", ownerUserId: member.ownerUserId, member: await presentMember(member), ownerSettings: ownerState.settings || {}, availableVehicles: [], invoices });
     return;
   }
-  res.json({ role: "driver", ownerUserId: member.ownerUserId, member, ownerSettings: ownerState.settings || {}, availableVehicles: Array.isArray(ownerState.vehicles) ? ownerState.vehicles : [], state: driverState(workspace.state, member), invoices });
+  res.json({ role: "driver", ownerUserId: member.ownerUserId, member: await presentMember(member), ownerSettings: ownerState.settings || {}, availableVehicles: Array.isArray(ownerState.vehicles) ? ownerState.vehicles : [], state: driverState(workspace.state, member), invoices });
 });
 
 router.post("/owner", async (req, res) => {
@@ -340,6 +376,35 @@ router.put("/owner/state", async (req, res) => {
     return;
   }
   res.json({ state: updated.state });
+});
+
+router.get("/files/:fileId/url", async (req, res) => {
+  const userId = req.authUserId!;
+  if (!/^[A-Za-z0-9-]+$/.test(req.params.fileId)) {
+    res.status(400).json({ error: "Invalid file reference" });
+    return;
+  }
+  const objectPath = `/objects/uploads/${req.params.fileId}`;
+  const owner = await ownerWorkspace(userId);
+  const relatedMembers = owner
+    ? await db.select().from(fleetMembers).where(eq(fleetMembers.ownerUserId, userId))
+    : [await memberForDriver(userId)].filter((member): member is typeof fleetMembers.$inferSelect => Boolean(member));
+  const authorized = relatedMembers.some((member) => {
+    const memberProfile = profile(member.profile);
+    return [...memberProfile.documents, ...memberProfile.sharedFiles].some((file) => file.dataUrl === objectPath);
+  });
+  if (!authorized) {
+    res.status(404).json({ error: "File not found or you do not have access to it." });
+    return;
+  }
+
+  try {
+    const url = await objectStorage.getObjectEntityDownloadURL(objectPath);
+    res.json({ url });
+  } catch (error) {
+    req.log.error({ err: error, userId }, "Could not create private file download URL");
+    res.status(404).json({ error: "This file is not available right now." });
+  }
 });
 
 router.post("/owner/vehicles/:vehicleId/access-code", async (req, res) => {
@@ -517,7 +582,7 @@ router.post("/join", async (req, res) => {
   };
   const nextState: AnyRecord = { ...state, drivers: [...drivers.filter((item: AnyRecord) => String(item.id) !== member.id), driver] };
   await db.update(fleetWorkspaces).set({ state: nextState, updatedAt: new Date() }).where(eq(fleetWorkspaces.ownerUserId, owner.ownerUserId));
-  res.json({ role: "driver", ownerUserId: owner.ownerUserId, member, ownerSettings: nextState.settings || {}, availableVehicles: Array.isArray(nextState.vehicles) ? nextState.vehicles : [], state: driverState(nextState, member), invoices: [] });
+  res.json({ role: "driver", ownerUserId: owner.ownerUserId, member: await presentMember(member), ownerSettings: nextState.settings || {}, availableVehicles: Array.isArray(nextState.vehicles) ? nextState.vehicles : [], state: driverState(nextState, member), invoices: [] });
 });
 
 router.put("/driver/profile", async (req, res) => {
@@ -543,7 +608,7 @@ router.put("/driver/profile", async (req, res) => {
     };
     await db.update(fleetWorkspaces).set({ state: nextState, updatedAt: new Date() }).where(eq(fleetWorkspaces.ownerUserId, member.ownerUserId));
   }
-  res.json({ member: updated });
+  res.json({ member: await presentMember(updated) });
 });
 
 router.put("/owner/members/:memberId", async (req, res) => {
@@ -569,7 +634,7 @@ router.put("/owner/members/:memberId", async (req, res) => {
       : [],
   };
   await db.update(fleetWorkspaces).set({ state: nextState, updatedAt: new Date() }).where(eq(fleetWorkspaces.ownerUserId, userId));
-  res.json({ member: { id: updated.id, driverUserId: updated.driverUserId, profile: profile(updated.profile) } });
+  res.json({ member: await presentMember(updated) });
 });
 
 router.put("/owner/members/:memberId/rate", async (req, res) => {
@@ -640,7 +705,7 @@ router.post("/owner/members/:memberId/files", async (req, res) => {
     }],
   };
   const updated = (await db.update(fleetMembers).set({ profile: nextProfile, updatedAt: new Date() }).where(eq(fleetMembers.id, member.id)).returning())[0];
-  res.json({ member: { id: updated.id, driverUserId: updated.driverUserId, profile: profile(updated.profile) } });
+  res.json({ member: await presentMember(updated) });
 });
 
 router.post("/owner/members/:memberId/status", async (req, res) => {
@@ -668,7 +733,7 @@ router.post("/owner/members/:memberId/status", async (req, res) => {
   const updated = (await db.update(fleetMembers).set({ profile: nextProfile, updatedAt: new Date() }).where(eq(fleetMembers.id, member.id)).returning())[0];
   const nextState = withDriverStatus(owner.state, member.id, status);
   await db.update(fleetWorkspaces).set({ state: nextState, updatedAt: new Date() }).where(eq(fleetWorkspaces.ownerUserId, userId));
-  res.json({ member: { id: updated.id, driverUserId: updated.driverUserId, profile: profile(updated.profile) } });
+  res.json({ member: await presentMember(updated) });
 });
 
 router.delete("/owner/members/:memberId", async (req, res) => {
