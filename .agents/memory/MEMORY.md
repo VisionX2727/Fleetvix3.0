@@ -1,0 +1,1 @@
+- [Fleetu AI and persistence](fleetvix-ai-data.md) — Fleetu uses Gemini through the backend; fleet records must persist in Supabase PostgreSQL.
