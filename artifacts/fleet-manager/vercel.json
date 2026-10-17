@@ -6,7 +6,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://fx-99999--skynetxofficial.replit.app/api/:path*"
+      "destination": "https://fx-99999-driver-owner-selection--moonknighttoffi.replit.app/api/:path*"
     },
     {
       "source": "/(.*)",
